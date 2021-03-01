@@ -2,16 +2,12 @@ from config import *
 from main import TextOcrModel
 
 
-# 是否使用ＧＰＵ
-USE_GPU = True
-
-
 filelock = 'file.lock'
 if os.path.exists(filelock):
     os.remove(filelock)
 
 if yoloTextFlag == 'keras' or AngleModelFlag == 'tf' or ocrFlag == 'keras':
-    if GPU and USE_GPU:
+    if GPU:
         os.environ["CUDA_VISIBLE_DEVICES"] = str(GPUID)
         import tensorflow as tf
         from keras import backend as K
