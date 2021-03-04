@@ -86,7 +86,12 @@ def oneHot(v, v_length, nc):
 
 
 def loadData(v, data):
-    v.data.resize_(data.size()).copy_(data)
+    # print(v.shape, data.shape)
+    v.resize_(data.size()).copy_(data)
+    # print(v.shape, data.shape)
+    # print(v != data)
+    # print(torch.sum(v != data))
+    # print()
 
 
 def prettyPrint(v):

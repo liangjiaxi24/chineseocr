@@ -33,7 +33,7 @@ class PathDataset(Dataset):
         imP = self.jpgPaths[index]
         txtP = imP.replace('.jpg','.txt')
         im = Image.open(imP).convert('L')
-        with open(txtP)  as f:
+        with open(txtP, encoding="utf8")  as f:
             label = f.read().strip()
             
         label = ''.join([ x for x in label if x in self.alphabetChinese ])
