@@ -105,7 +105,9 @@ class CRNN(nn.Module):
         self.eval()
         
     def predict(self, image):
-        image = resizeNormalize(image, 32)
+        resize_normalize = resizeNormalize((32, 32))
+        image = resize_normalize(image)
+
         image = image.astype(np.float32)
         image = torch.from_numpy(image)
         if torch.cuda.is_available() and self.GPU:
@@ -120,7 +122,10 @@ class CRNN(nn.Module):
         preds = self(image)
         _, preds = preds.max(2)
         preds = preds.transpose(1, 0).contiguous().view(-1)
-        raw = strLabelConverter(preds, self.alphabet)
+
+        converter = strLabelConverter(self.alphabet)
+        raw = converter.decode(preds)
+
         return raw
     
     def predict_job(self,boxes):
