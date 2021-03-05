@@ -4,8 +4,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.getcwd())))
 from glob import glob
 from sklearn.model_selection import train_test_split
 from train.ocr.generic_utils import Progbar
-from crnn.keys import alphabetChinese, alphabetEnglish
-from train.ocr.dataset import PathDataset, randomSequentialSampler, alignCollate
+from crnn.keys import alphabetChinese
+from train.ocr.dataset import PathDataset, alignCollate
 from crnn.util import loadData
 from warpctc_pytorch import CTCLoss
 import torch.optim as optim
@@ -39,7 +39,15 @@ class BidirectionalLSTM(nn.Module):
 class CRNN(nn.Module):
     def __init__(self, imgH, nc, nclass, nh, leakyRelu=False, lstmFlag=True, GPU=False, alphabet=None):
         """
-        是否加入lstm特征层
+        crnn　网络的主体
+        :param imgH:
+        :param nc:
+        :param nclass:
+        :param nh:
+        :param leakyRelu:
+        :param lstmFlag: 是否加入lstm特征层
+        :param GPU:
+        :param alphabet:
         """
         super(CRNN, self).__init__()
         assert imgH % 16 == 0, 'imgH has to be a multiple of 16'
@@ -134,11 +142,16 @@ class CRNN(nn.Module):
         image = Variable(image)
         if image.size()[-1] < 8:
             return ''
+        print(image.size())
         preds = self(image)
+        print(preds.size())
         _, preds = preds.max(2)
+        print(preds.size())
         preds = preds.transpose(1, 0).contiguous().view(-1)
+        print(preds.size())
 
         converter = ValstrLabelConverter(self.alphabet)
+        print(preds.size())
         raw = converter.decode(preds)
 
         return raw
@@ -196,119 +209,106 @@ class CRNN(nn.Module):
             boxes[i]['text'] = res[i]
         return boxes
 
-    def train_model(self):
-        batchSize = 8
-        workers = 1
-        imgH = 32
-        imgW = 280
-        keep_ratio = True
-        nepochs = 10
-        acc = 0
-        lr = 0.1
 
-        image = torch.FloatTensor(batchSize, 3, imgH, imgH)
-        text = torch.IntTensor(batchSize * 5)
-        length = torch.IntTensor(batchSize)
-        converter = strLabelConverter(''.join(alphabetEnglish))
-        optimizer = optim.Adadelta(self.parameters(), lr=lr)
+"""
+网络常数的设置
+"""
+batchSize = 4
+workers = 1
+imgH = 32
+imgW = 280
+keep_ratio = True
+nepochs = 10
+acc = 0
+lr = 0.1
 
-        roots = glob('../data/ocr/*/*.jpg')
-        # 此处未考虑字符平衡划分
-        trainP, testP = train_test_split(roots, test_size=0.1)
-        traindataset = PathDataset(trainP, alphabetEnglish)
-        testdataset = PathDataset(testP, alphabetEnglish)
-        criterion = CTCLoss()
 
-        train_loader = torch.utils.data.DataLoader(
-            traindataset, batch_size=batchSize,
-            shuffle=False, sampler=None,
-            num_workers=int(workers),
-            collate_fn=alignCollate(imgH=imgH, imgW=imgW, keep_ratio=keep_ratio))
-        interval = len(train_loader) // 2  ##评估模型
+def train_model(crnn_model):
+    image = torch.FloatTensor(batchSize, 3, imgH, imgH)
+    text = torch.IntTensor(batchSize * 5)
+    length = torch.IntTensor(batchSize)
+    converter = strLabelConverter(''.join(alphabetChinese))
+    optimizer = optim.Adadelta(crnn_model.parameters(), lr=lr)
 
-        def trainBatch(net, criterion, optimizer, cpu_images, cpu_texts):
-            batch_size = cpu_images.size(0)
-            loadData(image, cpu_images)
-            t, l = converter.encode(cpu_texts)
+    roots = glob('../data/ocr/*/*.jpg')
+    # 此处未考虑字符平衡划分
+    trainP, testP = train_test_split(roots, test_size=0.1)
+    traindataset = PathDataset(trainP, alphabetChinese)
+    testdataset = PathDataset(testP, alphabetChinese)
+    criterion = CTCLoss()
 
-            loadData(text, t)
-            loadData(length, l)
-            preds = net(image)
-            preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
-            cost = criterion(preds, text, preds_size, length) / batch_size
-            net.zero_grad()
-            cost.backward()
-            optimizer.step()
-            return cost
+    train_loader = torch.utils.data.DataLoader(
+        traindataset, batch_size=batchSize,
+        shuffle=False, sampler=None,
+        num_workers=int(workers),
+        collate_fn=alignCollate(imgH=imgH, imgW=imgW, keep_ratio=keep_ratio))
+    interval = len(train_loader) // 2  ##评估模型
 
-        def val(net, dataset, max_iter=100):
-            for p in net.parameters():
-                p.requires_grad = False
-            net.eval()
-            n_correct = 0
-            N = len(dataset)
-            max_iter = min(max_iter, N)
-            for i in range(max_iter):
-                im, label = dataset[np.random.randint(0, N)]
-                if im.size[0] > 1024:
-                    continue
-                pred = self.predict(im)
-                if pred.strip() == label:
-                    n_correct += 1
-            accuracy = n_correct / float(max_iter)
-            return accuracy
+    def trainBatch(net, criterion, optimizer, cpu_images, cpu_texts):
+        batch_size = cpu_images.size(0)
+        loadData(image, cpu_images)
+        t, l = converter.encode(cpu_texts)
 
-        if torch.cuda.is_available():
-            self.cuda()
-            # model = torch.nn.DataParallel(model, device_ids=[0])  ##转换为多GPU训练模型
-            image = image.cuda()
-            criterion = criterion.cuda()
+        loadData(text, t)
+        loadData(length, l)
+        # print(image.shape)
+        preds = net(image)
+        # print(preds.shape)
+        preds_size = Variable(torch.IntTensor([preds.size(0)] * batch_size))
+        cost = criterion(preds, text, preds_size, length) / batch_size
+        net.zero_grad()
+        cost.backward()
+        optimizer.step()
+        return cost
 
-        for i in range(nepochs):
-            # mark = 1
-            print('epoch:{}/{}'.format(i, nepochs))
-            n = len(train_loader)
-            pbar = Progbar(target=n)
-            train_iter = iter(train_loader)
-            loss = 0
+    def val(net, dataset, max_iter=100):
+        for p in net.parameters():
+            p.requires_grad = False
+        net.eval()
+        n_correct = 0
+        N = len(dataset)
+        max_iter = min(max_iter, N)
+        for i in range(max_iter):
+            im, label = dataset[np.random.randint(0, N)]
+            if im.size[0] > 1024:
+                continue
+            pred = crnn_model.predict(im)
+            if pred.strip() == label:
+                n_correct += 1
+        accuracy = n_correct / float(max_iter)
+        return accuracy
 
-            for j in range(n):
-                for name, params in self.named_parameters():
-                    params.requires_grad = True
+    if torch.cuda.is_available():
+        crnn_model.cuda()
+        # model = torch.nn.DataParallel(model, device_ids=[0])  ##转换为多GPU训练模型
+        image = image.cuda()
+        criterion = criterion.cuda()
 
-                    if 'rnn.1.embedding' in name:
-                        params.requires_grad = True
-                        # data = params.data.cuda().data.cpu().numpy()
-                        # if mark == 1:
-                        #     f = open("./mark_parms/{}_epoch_{}.txt".format(name, i), "w")
-                        #     f.write(name)
-                        #     f.write("\n")
-                        #     f.write(str(data))
-                        #     f.close()
-                        # mark = 2
+    for i in range(1, nepochs + 1):
+        # mark = 1
+        print('epoch:{}/{}'.format(i, nepochs))
+        n = len(train_loader)
+        pbar = Progbar(target=n)
+        train_iter = iter(train_loader)
+        loss = 0
 
-                    else:
-                        params.requires_grad = False  ##冻结模型层
+        for j in range(n):
+            for name, params in crnn_model.named_parameters():
+                params.requires_grad = True
+            crnn_model.train()
+            cpu_images, cpu_texts = next(train_iter)
+            cost = trainBatch(crnn_model, criterion, optimizer, cpu_images, cpu_texts)
+            loss += cost.data.numpy()
 
-                self.train()
-                cpu_images, cpu_texts = next(train_iter)
-
-                cost = trainBatch(self, criterion, optimizer, cpu_images, cpu_texts)
-
-                loss += cost.data.numpy()
-
-                if (j + 1) % interval == 0:
-                    curAcc = val(self, testdataset, max_iter=1024)
-                    if curAcc > acc:
-                        acc = curAcc
-                    torch.save(self.state_dict(), 'new_modellstm.pth')
-
-                pbar.update(j + 1, values=[('loss', loss / ((j + 1) * batchSize)), ('acc', acc)])
+            if (j + 1) % interval == 0:
+                curAcc = val(crnn_model, testdataset, max_iter=1024)
+                if curAcc > acc:
+                    acc = curAcc
+                torch.save(crnn_model.state_dict(), 'new_modellstm.pth')
+            pbar.update(j + 1, values=[('loss', loss / ((j + 1) * batchSize)), ('acc', acc)])
 
 
 if __name__ == '__main__':
-    from crnn.keys import alphabetChinese
-    from PIL import Image
 
     ocr_path = './models/ocr-lstm.pth'
     # ocr_path = './models/new_modellstm.pth'
@@ -318,9 +318,9 @@ if __name__ == '__main__':
     crnn_model = CRNN(32, 1, nclass, 256, leakyRelu=False, lstmFlag=True, GPU=False, alphabet=alphabet)
     crnn_model.load_weights(ocr_path)
 
-    # img = Image.open("2.png")
+    # from PIL import Image
+    # img = Image.open("3.jpg")
     # img = img.convert('L')
     # raw = crnn_model.predict(img)
     # print(raw)
-
-    crnn_model.train_model()
+    train_model(crnn_model)
