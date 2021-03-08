@@ -268,6 +268,7 @@ class TrainModel(object):
             pred = crnn_model.predict(im)
             if pred.strip() == label:
                 n_correct += 1
+            # print(pred.strip(), label)
         accuracy = n_correct / float(max_iter)
         return accuracy
 
@@ -294,9 +295,9 @@ class TrainModel(object):
                 loss += cost.data.numpy()
 
                 if (j + 1) % self.interval == 0:
-                    curAcc = self.val(crnn_model, self.testdataset, max_iter=1024)
-                    if curAcc > self.acc:
-                        self.acc = curAcc
+                    # curAcc = self.val(crnn_model, self.testdataset, max_iter=1024)
+                    # if curAcc > self.acc:
+                    #     self.acc = curAcc
                     torch.save(crnn_model.state_dict(), 'new_modellstm.pth')
                 pbar.update(j + 1, values=[('loss', loss / ((j + 1) * self.batchSize)), ('acc', self.acc)])
 
@@ -311,14 +312,16 @@ if __name__ == '__main__':
     crnn_model = CRNN(32, 1, nclass, 256, leakyRelu=False, lstmFlag=True, GPU=False, alphabet=alphabet)
     crnn_model.load_weights(ocr_path)
 
-    # from PIL import Image
-    # img = Image.open("3.jpg")
-    # img = img.convert('L')
-    # raw = crnn_model.predict(img)
-    # print(raw)
+    from PIL import Image
+    img = Image.open("3.jpg")
+    img = img.convert('L')
+    raw = crnn_model.predict(img)
+    print(raw)
 
 
     # dataset = PathDataset(["3.jpg"], alphabetChinese)
     # dataset = []
-    train_model = TrainModel(crnn_model)
-    train_model.val(crnn_model, train_model.testdataset)
+
+    # train_model = TrainModel(crnn_model)
+    # train_model.val(crnn_model, train_model.testdataset)
+    # train_model.run_train()
